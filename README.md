@@ -1,1 +1,1 @@
-# Skitch-ish
+# Skitchish
