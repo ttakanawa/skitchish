@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct EditorInteractionTests {
+    private let preferences = TestPreferences()
+
     private func fixture(width: Int = 400, height: Int = 300) throws -> EditorDocument {
         let context = try #require(
             CGContext(
@@ -43,7 +45,7 @@ struct EditorInteractionTests {
     }
 
     @Test func manyGestureUpdatesProduceOneUndoAndRedo() throws {
-        let session = EditorSession(document: try fixture())
+        let session = preferences.session(document: try fixture())
         let before = session.document
         var commits = 0
         session.onCommit = { commits += 1 }
@@ -64,15 +66,12 @@ struct EditorInteractionTests {
     }
 
     @Test func arrowAndLineSelectionFollowSilhouetteWithVisibleEndpointHandles() throws {
-        let defaults = UserDefaults.standard
-        let previousTool = defaults.object(forKey: "editor.tool")
-        defer { defaults.set(previousTool, forKey: "editor.tool") }
         for tool: EditorTool in [.arrow, .line] {
             for zoom: CGFloat in [0.5, 1, 2] {
                 var document = try fixture()
                 let mark = Markup(tool: tool, points: [CGPoint(x: 50, y: 60), CGPoint(x: 260, y: 180)], size: 6)
                 document.annotations = [mark]
-                let session = EditorSession(document: document)
+                let session = preferences.session(document: document)
                 session.tool = .select
                 session.zoom = zoom
                 let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -118,15 +117,12 @@ struct EditorInteractionTests {
     }
 
     @Test func arrowAndLineEndpointsResizeIndependentlyWithOneUndo() throws {
-        let defaults = UserDefaults.standard
-        let previousTool = defaults.object(forKey: "editor.tool")
-        defer { defaults.set(previousTool, forKey: "editor.tool") }
         for tool: EditorTool in [.arrow, .line] {
             for endpoint in 0..<2 {
                 var document = try fixture()
                 let mark = Markup(tool: tool, points: [CGPoint(x: 60, y: 80), CGPoint(x: 230, y: 160)], size: 6)
                 document.annotations = [mark]
-                let session = EditorSession(document: document)
+                let session = preferences.session(document: document)
                 session.tool = .select
                 session.selection = [mark.id]
                 session.zoom = 0.75
@@ -160,14 +156,11 @@ struct EditorInteractionTests {
     }
 
     @Test func blankDoubleClickStartsTextForNonStampToolsWithoutStrayMarksOrUndoEntries() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         // The stamp tool keeps its first-click marker and edits its label instead;
         // StampInteractionTests covers that separate creation/label undo boundary.
         for tool in EditorTool.allCases where tool != .stamp {
             let original = try fixture()
-            let session = EditorSession(document: original)
+            let session = preferences.session(document: original)
             session.tool = tool
             let canvas = CanvasView(session: session, renderer: EditorRenderer())
             canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -196,13 +189,10 @@ struct EditorInteractionTests {
     }
 
     @Test func outsideTextClickCommitsThenSelectsAndDragsObjectOrSelectsBlank() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         var original = try fixture()
         let shape = Markup(tool: .rectangle, points: [CGPoint(x: 310, y: 120), CGPoint(x: 370, y: 220)])
         original.annotations = [shape]
-        let session = EditorSession(document: original)
+        let session = preferences.session(document: original)
         session.tool = .text
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
         canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -235,12 +225,9 @@ struct EditorInteractionTests {
     }
 
     @Test func singleClickDotAndStampCommitBeforeUndoAndKeepOneHistoryEntry() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         for tool in [EditorTool.pen, .highlight, .stamp] {
             let original = try fixture()
-            let session = EditorSession(document: original)
+            let session = preferences.session(document: original)
             session.tool = tool
             let canvas = CanvasView(session: session, renderer: EditorRenderer())
             canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -260,7 +247,7 @@ struct EditorInteractionTests {
     }
 
     @Test func consecutiveCommandsHaveIndependentUndoBoundariesAndDocumentReplacementClearsHistory() throws {
-        let session = EditorSession(document: try fixture())
+        let session = preferences.session(document: try fixture())
         let first = Markup(tool: .rectangle, points: [CGPoint(x: 60, y: 60), CGPoint(x: 160, y: 160)])
         var states = [session.document]
         session.append([first], name: "Paste Annotations")
@@ -288,10 +275,7 @@ struct EditorInteractionTests {
     }
 
     @Test func canvasGestureUsesFrozenCoordinateMappingAndCancellationRestoresDraft() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = defaults.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
-        let session = EditorSession(document: try fixture())
+        let session = preferences.session(document: try fixture())
         session.tool = .rectangle
         session.zoom = 0.5
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -338,9 +322,6 @@ struct EditorInteractionTests {
     }
 
     @Test func textSideHandlesReflowWithoutScalingFontAndPreserveOppositeEdgeThroughRotationAndUndo() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         for mirrored in [false, true] {
             for turns in 0..<4 {
                 for leftEdge in [false, true] {
@@ -354,7 +335,7 @@ struct EditorInteractionTests {
                     if mirrored { document.flip(horizontal: true) }
                     for _ in 0..<turns { document.rotateClockwise() }
                     let mark = document.annotations[0]
-                    let session = EditorSession(document: document)
+                    let session = preferences.session(document: document)
                     session.tool = .select
                     session.zoom = 0.75
                     session.selection = [mark.id]
@@ -401,14 +382,11 @@ struct EditorInteractionTests {
     }
 
     @Test func textSideResizeStopsAtReadableMinimumWidthAndCanBeCancelled() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         var document = try fixture()
         document.annotations = [
             .init(tool: .text, points: [CGPoint(x: 60, y: 60), CGPoint(x: 300, y: 120)], size: 6, text: "Wrap me")
         ]
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.tool = .select
         session.selection = [document.annotations[0].id]
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -426,9 +404,6 @@ struct EditorInteractionTests {
     }
 
     @Test func textCornersScaleFontAndBoxTogetherAcrossAllCornersRotationsAndMirrors() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         for mirrored in [false, true] {
             for turns in 0..<4 {
                 for corner in 0..<4 {
@@ -447,7 +422,7 @@ struct EditorInteractionTests {
                         CGPoint(x: bounds.maxX, y: bounds.maxY), CGPoint(x: bounds.minX, y: bounds.maxY),
                     ]
                     let anchor = corners[(corner + 2) % 4]
-                    let session = EditorSession(document: document)
+                    let session = preferences.session(document: document)
                     session.tool = .select
                     session.zoom = 0.75
                     session.selection = [mark.id]
@@ -493,15 +468,12 @@ struct EditorInteractionTests {
     }
 
     @Test func textCornerScalingClampsTinyAndExtremeDragsWithoutInvalidDocument() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         for scale: CGFloat in [-1, 100_000] {
             var document = try fixture()
             document.annotations = [
                 .init(tool: .text, points: [CGPoint(x: 60, y: 60), CGPoint(x: 300, y: 120)], size: 6, text: "Resize")
             ]
-            let session = EditorSession(document: document)
+            let session = preferences.session(document: document)
             session.tool = .select
             session.selection = [document.annotations[0].id]
             let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -608,7 +580,7 @@ struct EditorInteractionTests {
                     ]
                     if mirrored { document.flip(horizontal: true) }
                     for _ in 0..<turns { document.rotateClockwise() }
-                    let session = EditorSession(document: document)
+                    let session = preferences.session(document: document)
                     session.zoom = 0.75
                     let renderer = EditorRenderer()
                     let canvas = CanvasView(session: session, renderer: renderer)
@@ -654,7 +626,7 @@ struct EditorInteractionTests {
         document.annotations = [
             .init(tool: .text, points: [CGPoint(x: 20, y: 20), CGPoint(x: 280, y: 100)], text: "Original")
         ]
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
         canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
         let location = canvas.convert(canvas.transform.viewPoint(CGPoint(x: 60, y: 40)), to: nil)
@@ -681,15 +653,8 @@ struct EditorInteractionTests {
     }
 
     @Test func highlighterFollowsFreehandPathWithBroadTranslucentStrokeAndUndo() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = defaults.object(forKey: "editor.tool")
-        let oldSize = defaults.object(forKey: "editor.size")
-        defer {
-            defaults.set(oldTool, forKey: "editor.tool")
-            defaults.set(oldSize, forKey: "editor.size")
-        }
         let document = try fixture(width: 140, height: 140)
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.tool = .highlight
         session.sizeIndex = 1
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -732,7 +697,7 @@ struct EditorInteractionTests {
                 .init(tool: tool, points: [CGPoint(x: 20, y: 20), CGPoint(x: 260, y: 80)], size: 6, text: "ABC")
             ]
             document.resize(to: CGSize(width: 40, height: 30))
-            let session = EditorSession(document: document)
+            let session = preferences.session(document: document)
             let canvas = CanvasView(session: session, renderer: EditorRenderer())
             canvas.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
             let mark = document.annotations[0]
@@ -751,13 +716,10 @@ struct EditorInteractionTests {
     }
 
     @Test func cropGestureAtSelectedHandleCropsCanvasInsteadOfResizingAnnotation() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         var document = try fixture()
         let mark = Markup(tool: .rectangle, points: [CGPoint(x: 80, y: 70), CGPoint(x: 240, y: 210)], size: 6)
         document.annotations = [mark]
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.selection = [mark.id]
         session.tool = .crop
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -782,15 +744,12 @@ struct EditorInteractionTests {
     }
 
     @Test func everyAnnotationToolSupportsCanvasCreationSelectionMoveDeleteAndUndo() throws {
-        let defaults = UserDefaults.standard
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { defaults.set(oldTool, forKey: "editor.tool") }
         let tools: [EditorTool] = [
             .arrow, .text, .rectangle, .roundedRectangle, .ellipse, .line, .pen, .highlight, .pixelate, .stamp,
         ]
         for tool in tools {
             let document = try fixture()
-            let session = EditorSession(document: document)
+            let session = preferences.session(document: document)
             session.tool = tool
             let canvas = CanvasView(session: session, renderer: EditorRenderer())
             canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -855,7 +814,7 @@ struct EditorInteractionTests {
                 size: 6, text: "Original")
         ]
         func edit(finalZoom: CGFloat) throws -> EditorDocument {
-            let session = EditorSession(document: document)
+            let session = preferences.session(document: document)
             session.zoom = 0.75
             let canvas = CanvasView(session: session, renderer: EditorRenderer())
             canvas.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -876,7 +835,7 @@ struct EditorInteractionTests {
         #expect(unchangedZoom.annotations[0].bounds.width == 240)
     }
 
-    @Test func pinchDisplayRestoresFinalQualityWithoutChangingExport() async throws {
+    @Test func pinchDisplayRestoresFinalQualityWithoutChangingExport() throws {
         let source = try #require(
             CGContext(
                 data: nil, width: 1024, height: 512, bitsPerComponent: 8, bytesPerRow: 0,
@@ -887,10 +846,11 @@ struct EditorInteractionTests {
         for x in stride(from: 0, to: 1024, by: 2) { source.fill(CGRect(x: x, y: 0, width: 1, height: 512)) }
         let data = try ImageService.pngData(#require(source.makeImage()))
         let document = EditorDocument(imageData: data, imageSize: CGSize(width: 1024, height: 512))
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.zoom = 0.17
         let renderer = EditorRenderer()
-        let canvas = CanvasView(session: session, renderer: EditorRenderer())
+        let clock = ManualScheduler()
+        let canvas = CanvasView(session: session, renderer: EditorRenderer(), scheduler: clock.scheduler)
         canvas.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
         canvas.onZoom = { session.zoom = $0 }
         func snapshot() throws -> Data {
@@ -920,7 +880,25 @@ struct EditorInteractionTests {
         #expect(try snapshot() == baseline)
         canvas.handleMagnification(0, phase: [])
         #expect(try snapshot() != baseline)
-        try await Task.sleep(for: .milliseconds(300))
+        clock.advance(by: 0.179)
+        #expect(try snapshot() != baseline, "Interactive quality lasts until the fallback deadline")
+        clock.advance(by: 0.002)
+        #expect(try snapshot() == baseline)
+
+        canvas.handleMagnification(0, phase: [])
+        clock.advance(by: 0.1)
+        canvas.handleMagnification(0, phase: [])
+        clock.advance(by: 0.081)
+        #expect(try snapshot() != baseline, "Another magnification renews the fallback deadline")
+        clock.advance(by: 0.1)
+        #expect(try snapshot() == baseline)
+
+        canvas.handleMagnification(0, phase: [])
+        clock.advance(by: 0.1)
+        canvas.handleMagnification(0, phase: .began)
+        clock.advance(by: 1)
+        #expect(try snapshot() != baseline, "A phased gesture cancels the previous fallback")
+        canvas.handleMagnification(0, phase: .ended)
         #expect(try snapshot() == baseline)
         #expect(session.document == document)
         #expect(try renderer.render(document: session.document).dataProvider!.data! as Data == export)

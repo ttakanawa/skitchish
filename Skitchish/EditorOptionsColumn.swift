@@ -17,10 +17,21 @@ final class EditorOptionsColumn: NSStackView {
     private weak var trackingHost: NSView?
     private weak var sidebar: NSView?
     private var sidebarTrackingArea: NSTrackingArea?
-    private var exitTimer: Timer?
-    private var choiceTimer: Timer?
+    private let scheduler: DelayedActionScheduler
+    private var cancelExitClose: DelayedActionScheduler.Cancellation?
+    private var cancelChoiceClose: DelayedActionScheduler.Cancellation?
 
     override var acceptsFirstResponder: Bool { true }
+
+    init(scheduler: DelayedActionScheduler = .mainRunLoop) {
+        self.scheduler = scheduler
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        scheduler = .mainRunLoop
+        super.init(coder: coder)
+    }
 
     func configureTracking(in host: NSView, sidebar: NSView) {
         trackingHost = host
@@ -57,33 +68,32 @@ final class EditorOptionsColumn: NSStackView {
     }
 
     func pointerEntered() {
-        exitTimer?.invalidate()
-        exitTimer = nil
+        cancelExitClose?()
+        cancelExitClose = nil
     }
 
     func pointerExited() {
-        exitTimer?.invalidate()
+        cancelExitClose?()
+        cancelExitClose = nil
         guard isPresented, !isPinned else { return }
-        exitTimer = Timer.scheduledTimer(withTimeInterval: Self.exitDelay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.requestClose() }
+        cancelExitClose = scheduler.schedule(Self.exitDelay) { [weak self] in
+            self?.requestClose()
         }
     }
 
     func closeAfterChoice() {
-        exitTimer?.invalidate()
-        exitTimer = nil
-        choiceTimer?.invalidate()
+        cancelPendingClose()
         guard isPresented, !isPinned else { return }
-        choiceTimer = Timer.scheduledTimer(withTimeInterval: Self.choiceDelay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.requestClose() }
+        cancelChoiceClose = scheduler.schedule(Self.choiceDelay) { [weak self] in
+            self?.requestClose()
         }
     }
 
     func cancelPendingClose() {
-        exitTimer?.invalidate()
-        exitTimer = nil
-        choiceTimer?.invalidate()
-        choiceTimer = nil
+        cancelExitClose?()
+        cancelExitClose = nil
+        cancelChoiceClose?()
+        cancelChoiceClose = nil
     }
 
     private func requestClose() {

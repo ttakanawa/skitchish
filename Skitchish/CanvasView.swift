@@ -53,7 +53,8 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     private var pendingClickCommit: DispatchWorkItem?
     private let textHistory = UndoManager()
     private var interactiveZoom = false
-    private var zoomQualityReset: DispatchWorkItem?
+    private let scheduler: DelayedActionScheduler
+    private var cancelZoomQualityReset: DelayedActionScheduler.Cancellation?
     var isEditingText: Bool { textEditor != nil }
     var draftDocument: EditorDocument { textDocument ?? gestureDocument ?? pendingClick?.before ?? session.document }
     var transform: CanvasTransform {
@@ -68,9 +69,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
                 y: max(48, (bounds.height - canvas.height * zoom) / 2)))
     }
 
-    init(session: EditorSession, renderer: EditorRenderer) {
+    init(session: EditorSession, renderer: EditorRenderer, scheduler: DelayedActionScheduler = .mainQueue) {
         self.session = session
         self.renderer = renderer
+        self.scheduler = scheduler
         super.init(frame: .zero)
         registerForDraggedTypes([.fileURL, .png, .tiff, NSPasteboard.PasteboardType("public.jpeg")])
         setAccessibilityLabel("Image annotation canvas")
@@ -805,6 +807,10 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         }
         addSubview(editor)
         textEditor = editor
+        if let label = editor as? StampLabelTextView {
+            label.resizeToFitText(minimumSize: frame.size)
+            synchronizeTextEditorPosition()
+        }
         if mark.tool != .stamp { session.tool = mark.tool }
         window?.makeFirstResponder(editor)
         let length = (initialText as NSString).length
@@ -989,9 +995,7 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
         let label = TextAnnotationGeometry.stampEditingRect(mark)
         textEditingCenter = CGPoint(x: label.midX, y: label.midY)
         let size = CGSize(width: label.width * textEditingZoom, height: label.height * textEditingZoom)
-        editor.minSize = size
-        editor.maxSize = CGSize(width: size.width, height: 100_000)
-        editor.setFrameSize(size)
+        (editor as? StampLabelTextView)?.resizeToFitText(minimumSize: size)
         synchronizeTextEditorPosition()
         editor.needsDisplay = true
         needsDisplay = true
@@ -1131,16 +1135,14 @@ final class CanvasView: NSView, NSTextViewDelegate, NSMenuItemValidation {
     }
     func handleMagnification(_ magnification: CGFloat, phase: NSEvent.Phase) {
         guard finishTextEditing(), gesture == nil else { return }
-        zoomQualityReset?.cancel()
-        zoomQualityReset = nil
+        cancelZoomQualityReset?()
+        cancelZoomQualityReset = nil
         interactiveZoom = !phase.contains(.ended) && !phase.contains(.cancelled)
         if phase.isEmpty {
-            let reset = DispatchWorkItem { [weak self] in
+            cancelZoomQualityReset = scheduler.schedule(0.18) { [weak self] in
                 self?.interactiveZoom = false
                 self?.needsDisplay = true
             }
-            zoomQualityReset = reset
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: reset)
         }
         onZoom?(session.zoom * (1 + magnification))
         needsDisplay = true
