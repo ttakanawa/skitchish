@@ -12,7 +12,7 @@ final class EditorSession: NSObject {
     var fitsWindow = true
     var tool: EditorTool {
         didSet {
-            UserDefaults.standard.set(tool.rawValue, forKey: "editor.tool")
+            preferences.set(tool.rawValue, forKey: "editor.tool")
             onChange?()
         }
     }
@@ -27,7 +27,7 @@ final class EditorSession: NSObject {
     private(set) var customColor: RGBA
     var sizeIndex: Int {
         didSet {
-            UserDefaults.standard.set(sizeIndex, forKey: "editor.size")
+            preferences.set(sizeIndex, forKey: "editor.size")
             onChange?()
         }
     }
@@ -72,11 +72,11 @@ final class EditorSession: NSObject {
             customColor = .palette[0]
         }
         stamp = max(0, min(4, preferences.integer(forKey: "editor.stamp")))
-        tool = EditorTool(rawValue: UserDefaults.standard.string(forKey: "editor.tool") ?? "arrow") ?? .arrow
+        tool = EditorTool(rawValue: preferences.string(forKey: "editor.tool") ?? "arrow") ?? .arrow
         colorIndex = max(-1, min(RGBA.palette.count - 1, preferences.integer(forKey: "editor.color")))
         sizeIndex =
-            UserDefaults.standard.object(forKey: "editor.size") == nil
-            ? 2 : UserDefaults.standard.integer(forKey: "editor.size")
+            preferences.object(forKey: "editor.size") == nil
+            ? 2 : preferences.integer(forKey: "editor.size")
         super.init()
         history.groupsByEvent = false
     }

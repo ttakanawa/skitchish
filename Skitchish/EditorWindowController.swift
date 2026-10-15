@@ -6,6 +6,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     let session: EditorSession
     let renderer = EditorRenderer()
     let store: DocumentStore
+    private let hasExplicitStore: Bool
     let captureService = CaptureService()
     lazy var settings = CaptureSettingsController { [weak self] mode in self?.capture(mode) }
     let scroll = NSScrollView()
@@ -29,9 +30,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
     static let annotationType = NSPasteboard.PasteboardType("com.skitchish.annotations.v1")
     let toolItems = EditorToolCatalog.items
 
-    init(restoringDraft: Bool = true, store: DocumentStore = DocumentStore()) throws {
-        self.store = store
-        session = EditorSession(document: try Self.blankDocument())
+    init(restoringDraft: Bool = true, store: DocumentStore? = nil, preferences: UserDefaults? = nil) throws {
+        self.store = store ?? DocumentStore()
+        hasExplicitStore = store != nil
+        session = EditorSession(document: try Self.blankDocument(), preferences: preferences)
         canvas = CanvasView(session: session, renderer: renderer)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1120, height: 800),
@@ -58,7 +60,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         canvas.onZoom = { [weak self] zoom in self?.setZoom(zoom) }
         canvas.onCanvasInteraction = { [weak self] in self?.sidebarController.closeOptions() }
         if !isTesting && restoringDraft {
-            do { if let latest = try store.latestDraft() { session.replace(with: latest) } } catch {
+            do { if let latest = try self.store.latestDraft() { session.replace(with: latest) } } catch {
                 DispatchQueue.main.async { [weak self] in self?.present(error) }
             }
             _ = settings
@@ -398,7 +400,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSText
         guard canvas.finishTextEditing() else { return false }
         autosaveTimer?.invalidate()
         if discardedDocument == session.document { return true }
-        if isTesting { return true }
+        // Tests with an explicit temporary store exercise the real save path.
+        // Ordinary UI-test launches still leave the user's drafts untouched.
+        if isTesting && !hasExplicitStore { return true }
         do {
             try store.saveDraft(session.document)
             return true

@@ -5,6 +5,8 @@ import Testing
 
 @MainActor
 struct StampChromeInteractionTests {
+    private let preferences = TestPreferences()
+
     private func canvas(mark: Markup, tool: EditorTool, zoom: CGFloat = 1) throws -> CanvasView {
         let bitmap = try #require(
             CGContext(
@@ -15,7 +17,7 @@ struct StampChromeInteractionTests {
             imageData: try ImageService.pngData(#require(bitmap.makeImage())),
             imageSize: CGSize(width: 800, height: 600))
         document.annotations = [mark]
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.tool = tool
         session.zoom = zoom
         let canvas = CanvasView(session: session, renderer: EditorRenderer())
@@ -34,8 +36,6 @@ struct StampChromeInteractionTests {
     }
 
     @Test func bodyDragMovesInsteadOfEditingOrChangingPointerInEveryDrawingTool() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         for tool in EditorTool.allCases where tool != .crop {
             let mark = Markup(
                 tool: .stamp, points: [CGPoint(x: 300, y: 200), CGPoint(x: 360, y: 260)],
@@ -55,8 +55,6 @@ struct StampChromeInteractionTests {
     }
 
     @Test func pointerHandleChangesEightDirectionsThroughRotationMirrorAndZoomWithoutMovingMarker() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         for mirrored in [false, true] {
             for turns in 0..<4 {
                 for direction in 0..<8 {
@@ -85,8 +83,6 @@ struct StampChromeInteractionTests {
     }
 
     @Test func pointerCanReturnToCircleWithoutRemovingLabelAndEveryControlCenterRemainsReachable() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         for text in ["", "a", "確認中"] {
             for zoom: CGFloat in [0.1, 0.75, 2] {
                 let mark = Markup(
