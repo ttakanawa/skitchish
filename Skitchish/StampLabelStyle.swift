@@ -48,6 +48,19 @@ struct StampLabelStyle {
         let lineCount = text.components(separatedBy: "\n").count
         let nativeLineHeight = ceil(font.ascender - font.descender + font.leading)
         height = max(height, nativeLineHeight * CGFloat(lineCount))
+        // TextKit can allocate taller line fragments for fallback glyphs than
+        // Core Text or the primary font's metrics predict. Measure the native
+        // editor too, including its editable final empty line.
+        let storage = NSTextStorage(attributedString: string)
+        let layout = NSLayoutManager()
+        layout.usesFontLeading = false
+        let container = NSTextContainer(size: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        height = max(height, ceil(layout.usedRect(for: container).maxY))
+        height = max(height, ceil(layout.extraLineFragmentRect.maxY))
         // Fractional metrics can still put the final baseline just outside a CTFrame.
         // Check coverage instead of assuming that a rounded suggested height suffices.
         for _ in 0..<Int(max(2, nativeLineHeight * 2)) {
