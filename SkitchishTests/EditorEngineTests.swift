@@ -419,7 +419,10 @@ struct EditorEngineTests {
                 let style = StampLabelStyle(diameter: diameter)
                 let measured = style.textSize(for: text)
                 let font = EditorRenderer.stampLabelFont(size: style.fontSize)
-                let string = NSAttributedString(string: text, attributes: [.font: font])
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineBreakMode = .byWordWrapping
+                paragraph.alignment = .right
+                let string = NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: paragraph])
                 let framesetter = CTFramesetterCreateWithAttributedString(string)
                 let frame = CTFramesetterCreateFrame(
                     framesetter, CFRange(),
@@ -429,7 +432,10 @@ struct EditorEngineTests {
                 for zoom in [CGFloat(0.75), 1, 2] {
                     let storage = NSTextStorage(
                         string: text,
-                        attributes: [.font: EditorRenderer.stampLabelFont(size: style.fontSize * zoom)])
+                        attributes: [
+                            .font: EditorRenderer.stampLabelFont(size: style.fontSize * zoom),
+                            .paragraphStyle: paragraph,
+                        ])
                     let layout = NSLayoutManager()
                     layout.usesFontLeading = false
                     let container = NSTextContainer(size: CGSize(width: measured.width * zoom, height: 10_000))
@@ -437,7 +443,9 @@ struct EditorEngineTests {
                     storage.addLayoutManager(layout)
                     layout.addTextContainer(container)
                     layout.ensureLayout(for: container)
-                    #expect(layout.usedRect(for: container).height <= measured.height * zoom + 1)
+                    #expect(
+                        layout.usedRect(for: container).height <= measured.height * zoom + 1,
+                        "text=\(text.debugDescription), diameter=\(diameter), zoom=\(zoom)")
                 }
             }
         }
