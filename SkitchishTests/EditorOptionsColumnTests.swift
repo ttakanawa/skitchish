@@ -5,8 +5,9 @@ import Testing
 
 @MainActor
 struct EditorOptionsColumnTests {
-    @Test func leavingOptionsClosesOnceAfterTheGracePeriod() async throws {
-        let column = EditorOptionsColumn()
+    @Test func leavingOptionsClosesOnceAfterTheGracePeriod() {
+        let clock = ManualScheduler()
+        let column = EditorOptionsColumn(scheduler: clock.scheduler)
         var closeCount = 0
         column.onClose = { [weak column] in
             closeCount += 1
@@ -16,16 +17,19 @@ struct EditorOptionsColumnTests {
         column.setPresented(true)
         column.pointerExited()
         #expect(closeCount == 0 && column.isPresented)
-        try await Task.sleep(for: .milliseconds(650))
+        clock.advance(by: EditorOptionsColumn.exitDelay - 0.001)
+        #expect(closeCount == 0 && column.isPresented)
+        clock.advance(by: 0.002)
         #expect(closeCount == 1 && !column.isPresented)
         column.pointerExited()
         column.closeAfterChoice()
-        try await Task.sleep(for: .milliseconds(500))
+        clock.advance(by: 1)
         #expect(closeCount == 1, "Hidden options cannot issue another close")
     }
 
-    @Test func returningToOptionsCancelsExitButChoosingStillCloses() async throws {
-        let column = EditorOptionsColumn()
+    @Test func returningToOptionsCancelsExitButChoosingStillCloses() {
+        let clock = ManualScheduler()
+        let column = EditorOptionsColumn(scheduler: clock.scheduler)
         var closeCount = 0
         column.onClose = { [weak column] in
             closeCount += 1
@@ -35,17 +39,20 @@ struct EditorOptionsColumnTests {
         column.setPresented(true)
         column.pointerExited()
         column.pointerEntered()
-        try await Task.sleep(for: .milliseconds(650))
+        clock.advance(by: EditorOptionsColumn.exitDelay + 0.001)
         #expect(closeCount == 0 && column.isPresented, "Crossing back into the panel cancels dismissal")
         column.closeAfterChoice()
         column.pointerEntered()
         #expect(column.isPresented, "Keep the chosen option briefly visible before returning")
-        try await Task.sleep(for: .milliseconds(350))
+        clock.advance(by: EditorOptionsColumn.choiceDelay - 0.001)
+        #expect(closeCount == 0 && column.isPresented)
+        clock.advance(by: 0.002)
         #expect(closeCount == 1 && !column.isPresented)
     }
 
-    @Test func pinningCancelsPendingExitAndChoiceDismissal() async throws {
-        let column = EditorOptionsColumn()
+    @Test func pinningCancelsPendingExitAndChoiceDismissal() {
+        let clock = ManualScheduler()
+        let column = EditorOptionsColumn(scheduler: clock.scheduler)
         var closeCount = 0
         column.onClose = { [weak column] in
             closeCount += 1
@@ -56,30 +63,71 @@ struct EditorOptionsColumnTests {
         column.pointerExited()
         column.isPinned = true
         column.closeAfterChoice()
-        try await Task.sleep(for: .milliseconds(650))
-        #expect(closeCount == 0 && column.isPresented)
         column.isPinned = false
+        clock.advance(by: 1)
+        #expect(closeCount == 0 && column.isPresented, "Unpinning must not revive the cancelled exit")
         column.closeAfterChoice()
         column.isPinned = true
-        try await Task.sleep(for: .milliseconds(350))
-        #expect(closeCount == 0 && column.isPresented, "Pinning also cancels an already queued choice close")
         column.isPinned = false
+        clock.advance(by: 1)
+        #expect(closeCount == 0 && column.isPresented, "Pinning also cancels an already queued choice close")
         column.pointerExited()
-        try await Task.sleep(for: .milliseconds(650))
+        clock.advance(by: EditorOptionsColumn.exitDelay + 0.001)
         #expect(closeCount == 1 && !column.isPresented)
     }
 
-    @Test func reopeningOptionsDiscardsThePreviousCloseTimer() async throws {
-        let column = EditorOptionsColumn()
+    @Test(arguments: [false, true])
+    func reopeningOptionsDiscardsThePreviousCloseTimer(afterChoice: Bool) {
+        let clock = ManualScheduler()
+        let column = EditorOptionsColumn(scheduler: clock.scheduler)
         var closeCount = 0
         column.onClose = { closeCount += 1 }
         defer { column.cancelPendingClose() }
         column.setPresented(true)
-        column.pointerExited()
+        if afterChoice { column.closeAfterChoice() } else { column.pointerExited() }
         column.setPresented(false)
         column.setPresented(true)
-        try await Task.sleep(for: .milliseconds(650))
+        clock.advance(by: 1)
         #expect(closeCount == 0 && column.isPresented)
+    }
+
+    @Test(arguments: [false, true])
+    func repeatedCloseRequestsRenewTheDeadline(afterChoice: Bool) {
+        let clock = ManualScheduler()
+        let column = EditorOptionsColumn(scheduler: clock.scheduler)
+        let delay = afterChoice ? EditorOptionsColumn.choiceDelay : EditorOptionsColumn.exitDelay
+        var closeCount = 0
+        column.onClose = { closeCount += 1 }
+        column.setPresented(true)
+        func requestClose() {
+            if afterChoice { column.closeAfterChoice() } else { column.pointerExited() }
+        }
+        requestClose()
+        clock.advance(by: delay / 2)
+        requestClose()
+        clock.advance(by: delay / 2 + 0.001)
+        #expect(closeCount == 0 && column.isPresented, "The previous deadline must be cancelled")
+        clock.advance(by: delay / 2)
+        #expect(closeCount == 1)
+        clock.advance(by: 1)
+        #expect(closeCount == 1, "A close request fires only once")
+    }
+
+    @Test func choosingAnOptionCancelsAnEarlierExitDeadline() {
+        let clock = ManualScheduler()
+        let column = EditorOptionsColumn(scheduler: clock.scheduler)
+        var closeCount = 0
+        column.onClose = { closeCount += 1 }
+        column.setPresented(true)
+        column.pointerExited()
+        clock.advance(by: EditorOptionsColumn.exitDelay - EditorOptionsColumn.choiceDelay / 2)
+        column.closeAfterChoice()
+        clock.advance(by: EditorOptionsColumn.choiceDelay / 2 + 0.001)
+        #expect(closeCount == 0, "Choosing keeps the option visible past the cancelled exit deadline")
+        clock.advance(by: EditorOptionsColumn.choiceDelay / 2)
+        #expect(closeCount == 1)
+        clock.advance(by: 1)
+        #expect(closeCount == 1)
     }
 
     @Test func optionsTrackTheSidebarAndAdjacentGraceAreaOnlyWhilePresented() {

@@ -5,6 +5,8 @@ import Testing
 
 @MainActor
 struct TextSelectionInteractionTests {
+    private let preferences = TestPreferences()
+
     private func fixture(zoom: CGFloat = 1) throws -> (EditorSession, CanvasView, Markup) {
         let bitmap = try #require(
             CGContext(
@@ -18,7 +20,7 @@ struct TextSelectionInteractionTests {
             tool: .text, points: [CGPoint(x: 120, y: 100), CGPoint(x: 440, y: 200)], size: 6,
             text: "日本語の幅を調整します。 Keep the same font size while wrapping this text.")
         document.annotations = [mark]
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.tool = .select
         session.zoom = zoom
         session.selection = [mark.id]
@@ -41,8 +43,6 @@ struct TextSelectionInteractionTests {
     }
 
     @Test func widthGripsRespectGrabOffsetAtEveryZoomAndBothEdges() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         for zoom: CGFloat in [0.5, 1, 2] {
             for left in [false, true] {
                 let (session, canvas, mark) = try fixture(zoom: zoom)
@@ -79,8 +79,6 @@ struct TextSelectionInteractionTests {
     }
 
     @Test func inlineWidthDragKeepsEditorCaretAndOneUndoStepThenSavesGeometry() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         for left in [false, true] {
             let (session, canvas, mark) = try fixture()
             let before = session.document
@@ -129,8 +127,6 @@ struct TextSelectionInteractionTests {
     }
 
     @Test func inlineWidthDragDoesNotCommitJapaneseCompositionToDocumentOrDraft() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         let (session, canvas, mark) = try fixture()
         let before = session.document
         let editor = try beginEditing(canvas, mark: mark)
@@ -158,8 +154,6 @@ struct TextSelectionInteractionTests {
     }
 
     @Test func visibleWidthGripsStayUsableAtEveryZoomRotationAndMirror() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         let (_, canvas, original) = try fixture()
         for zoom: CGFloat in [0.1, 0.5, 1, 4] {
             for turn in 0..<4 {
@@ -186,8 +180,6 @@ struct TextSelectionInteractionTests {
     }
 
     @Test func tinyZoomKeepsCornerScalingSeparateFromWidthAndTextInput() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         let (session, canvas, mark) = try fixture(zoom: 0.05)
         let chrome = TextSelectionChrome(mark: mark, mapping: canvas.transform)
         let corner = chrome.cornerCenters[2]
@@ -217,8 +209,6 @@ struct TextSelectionInteractionTests {
     }
 
     @Test func oversizedTextStaysEditableInsteadOfLosingThePreviousDocument() throws {
-        let oldTool = UserDefaults.standard.object(forKey: "editor.tool")
-        defer { UserDefaults.standard.set(oldTool, forKey: "editor.tool") }
         let (session, canvas, mark) = try fixture()
         let before = session.document
         let editor = try beginEditing(canvas, mark: mark)

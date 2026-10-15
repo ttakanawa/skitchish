@@ -413,8 +413,8 @@ struct EditorEngineTests {
         #expect(try #require(displayed.dataProvider?.data) as Data == #require(exported.dataProvider?.data) as Data)
     }
 
-    @MainActor @Test func stampLabelMetricsFitFallbackGlyphsAndCompleteMultilineFrames() throws {
-        for text in ["Label 日本語", "MMMMMMMM\nM", "日本語\nSecond line\n終", "Trailing\n"] {
+    @MainActor @Test func stampLabelExportFramesContainCompleteFallbackAndMultilineText() throws {
+        for text in ["Label 日本語", "MMMMMMMM\nM", "日本語\nSecond line\n終", "😀\nSecond line\n😀", "Trailing\n", "\n\n"] {
             for diameter in [CGFloat(28), 40, 84] {
                 let style = StampLabelStyle(diameter: diameter)
                 let measured = style.textSize(for: text)
@@ -428,25 +428,9 @@ struct EditorEngineTests {
                     framesetter, CFRange(),
                     CGPath(rect: CGRect(origin: .zero, size: measured), transform: nil), nil)
                 let visible = CTFrameGetVisibleStringRange(frame)
-                #expect(visible.location + visible.length == string.length)
-                for zoom in [CGFloat(0.75), 1, 2] {
-                    let storage = NSTextStorage(
-                        string: text,
-                        attributes: [
-                            .font: EditorRenderer.stampLabelFont(size: style.fontSize * zoom),
-                            .paragraphStyle: paragraph,
-                        ])
-                    let layout = NSLayoutManager()
-                    layout.usesFontLeading = false
-                    let container = NSTextContainer(size: CGSize(width: measured.width * zoom, height: 10_000))
-                    container.lineFragmentPadding = 0
-                    storage.addLayoutManager(layout)
-                    layout.addTextContainer(container)
-                    layout.ensureLayout(for: container)
-                    #expect(
-                        layout.usedRect(for: container).height <= measured.height * zoom + 1,
-                        "text=\(text.debugDescription), diameter=\(diameter), zoom=\(zoom)")
-                }
+                #expect(
+                    visible.location + visible.length == string.length,
+                    "text=\(text.debugDescription), diameter=\(diameter)")
             }
         }
     }

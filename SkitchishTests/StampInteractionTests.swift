@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct StampInteractionTests {
+    private let preferences = TestPreferences()
+
     private func fixture(_ annotations: [Markup] = []) throws -> EditorDocument {
         let context = try #require(
             CGContext(
@@ -23,7 +25,7 @@ struct StampInteractionTests {
     }
 
     private func withDefaultsRestored(_ action: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
+        let defaults = preferences.defaults
         let keys = ["editor.tool", "editor.size", "editor.color", "editor.stamp", "editor.stampTail"]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
         defer { for (key, value) in saved { defaults.set(value, forKey: key) } }
@@ -31,7 +33,7 @@ struct StampInteractionTests {
     }
 
     private func canvas(_ document: EditorDocument, tool: EditorTool = .stamp) -> CanvasView {
-        let session = EditorSession(document: document)
+        let session = preferences.session(document: document)
         session.tool = tool
         session.sizeIndex = 2
         session.zoom = 0.75
@@ -69,6 +71,35 @@ struct StampInteractionTests {
             x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
     }
 
+    private func expectNativeTextFits(_ editor: NSTextView) throws {
+        let layout = try #require(editor.layoutManager)
+        let container = try #require(editor.textContainer)
+        layout.ensureLayout(for: container)
+        let origin = editor.textContainerOrigin
+        // AppKit rounds the native origin independently of fractional insets.
+        let textArea = CGRect(
+            origin: origin,
+            size: CGSize(
+                width: min(container.size.width, editor.bounds.maxX - origin.x),
+                height: editor.bounds.maxY - editor.textContainerInset.height - origin.y))
+        let used = layout.usedRect(for: container).offsetBy(dx: origin.x, dy: origin.y)
+        let label = try #require(editor as? StampLabelTextView)
+        let context = "text=\(editor.string.debugDescription), diameter=\(label.labelDiameter), zoom=\(label.labelZoom)"
+        let glyphs = layout.glyphRange(for: container)
+        let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        #expect(NSMaxRange(characters) == (editor.string as NSString).length, "Complete native text: \(context)")
+        #expect(used.minX >= textArea.minX - 0.001 && used.maxX <= textArea.maxX + 0.001, "Horizontal fit: \(context)")
+        #expect(
+            used.minY >= textArea.minY - 0.001,
+            "Top fit: \(context), used=\(used), area=\(textArea), bounds=\(editor.bounds)")
+        #expect(used.maxY <= textArea.maxY + 0.001, "Bottom fit: \(context), used=\(used), area=\(textArea)")
+        if editor.string.isEmpty || editor.string.hasSuffix("\n") {
+            let extra = layout.extraLineFragmentRect.offsetBy(dx: origin.x, dy: origin.y)
+            #expect(extra.height > 0, "The empty final line must remain editable")
+            #expect(extra.maxY <= textArea.maxY + 0.001, "Final caret line: \(context)")
+        }
+    }
+
     private func stamp(text: String = "", center: CGPoint = CGPoint(x: 300, y: 200)) -> Markup {
         Markup(
             tool: .stamp,
@@ -83,7 +114,7 @@ struct StampInteractionTests {
             let document = try fixture()
             let canvas = canvas(document)
             canvas.session.stamp = 3
-            UserDefaults.standard.set(true, forKey: "editor.stampTail")  // A legacy preference must not add a tail.
+            preferences.defaults.set(true, forKey: "editor.stampTail")  // A legacy preference must not add a tail.
             let point = CGPoint(x: 250, y: 170)
             try click(point, in: canvas)
             #expect(!canvas.isEditingText)
@@ -438,9 +469,9 @@ struct StampInteractionTests {
             }
             func expectFrame(_ actual: CGRect, _ expected: CGRect) {
                 #expect(abs(actual.minX - expected.minX) < 0.001)
-                #expect(abs(actual.minY - expected.minY) < 0.001)
+                #expect(abs(actual.midY - expected.midY) < 0.001)
                 #expect(abs(actual.width - expected.width) < 0.001)
-                #expect(abs(actual.height - expected.height) < 0.001)
+                #expect(actual.height >= expected.height)
             }
             for kind in 0..<5 {
                 for colorIndex in RGBA.palette.indices {
@@ -464,6 +495,7 @@ struct StampInteractionTests {
                     #expect(!editor.isRichText && editor.allowsUndo)
                     let expectedFrame = editingFrame(for: mark, in: canvas)
                     expectFrame(editor.frame, expectedFrame)
+                    try expectNativeTextFits(editor)
                     #expect(editor.frame.maxX < canvas.transform.viewRect(mark.stampCircleBounds).minX)
                     let style = StampLabelStyle(diameter: mark.stampLocalCircleBounds.width)
                     #expect(abs(editor.textContainerInset.width - style.paddingX * canvas.session.zoom) < 0.001)
@@ -474,6 +506,7 @@ struct StampInteractionTests {
                     var updated = mark
                     updated.text = editor.string
                     expectFrame(editor.frame, editingFrame(for: updated, in: canvas))
+                    try expectNativeTextFits(editor)
                     #expect(editor.frame.height > expectedFrame.height)
                     #expect(
                         canvas.draftDocument == document, "Typing and multiline layout must not save a partial label")
@@ -486,6 +519,46 @@ struct StampInteractionTests {
                     #expect(canvas.session.document == document && !canvas.session.history.canUndo)
                 }
             }
+        }
+    }
+
+    @Test(
+        arguments: ["日本語\nSecond line\n終", "😀\nSecond line\n😀", "Trailing\n"],
+        [CGFloat(0.25), 0.5, 0.75, 1, 2])
+    func stampEditorFitsFallbackGlyphsAndFinalCaretLinesAtEveryZoom(text: String, zoom: CGFloat) throws {
+        for diameter: CGFloat in [28, 84] {
+            var mark = stamp(text: text)
+            mark.points = [
+                CGPoint(x: 300 - diameter / 2, y: 200 - diameter / 2),
+                CGPoint(x: 300 + diameter / 2, y: 200 + diameter / 2),
+            ]
+            let document = try fixture([mark])
+            let canvas = canvas(document)
+            canvas.session.zoom = zoom
+            try doubleClick(CGPoint(x: 300, y: 200), in: canvas)
+            let editor = try #require(canvas.subviews.compactMap { $0 as? NSTextView }.first)
+            try expectNativeTextFits(editor)
+            let circle = canvas.transform.viewRect(mark.stampCircleBounds)
+            let circleFacingEdge = editor.frame.maxX
+            #expect(circleFacingEdge < circle.minX)
+            #expect(abs(editor.frame.midY - circle.midY) < 0.001)
+
+            func replaceText(_ replacement: String) throws {
+                editor.insertText(
+                    replacement, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+                #expect(editor.string == replacement)
+                try expectNativeTextFits(editor)
+                #expect(abs(editor.frame.maxX - circleFacingEdge) < 0.001)
+                #expect(abs(editor.frame.midY - circle.midY) < 0.001)
+                #expect(canvas.session.document == document && canvas.draftDocument == document)
+            }
+            try replaceText(text + "\n\n")
+            let multilineHeight = editor.frame.height
+            try replaceText("M")
+            #expect(editor.frame.height < multilineHeight, "Deleting lines must shrink the transient label")
+            try replaceText("")
+            #expect(canvas.finishTextEditing())
+            #expect(canvas.session.document.annotations.first?.points == mark.points)
         }
     }
 
