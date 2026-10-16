@@ -25,7 +25,8 @@ xcodebuild -project "$project_root/Skitchish.xcodeproj" -scheme Skitchish \
   MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$2" build
 app="$release_dir/Skitchish.app"
 ditto "$release_dir/DerivedData/Build/Products/Release/Skitchish.app" "$app"
-lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Skitchish"
+lipo "$app/Contents/MacOS/Skitchish" -verify_arch arm64
+lipo "$app/Contents/MacOS/Skitchish" -verify_arch x86_64
 codesign --force --options runtime --timestamp \
   --entitlements "$project_root/Skitchish/Skitchish.entitlements" \
   --sign "$SKITCHISH_SIGN_IDENTITY" "$app"
