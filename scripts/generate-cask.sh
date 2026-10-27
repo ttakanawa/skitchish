@@ -15,8 +15,10 @@ cask "skitchish" do
   desc "Capture and annotate images"
   homepage "https://github.com/ttakanawa/skitchish"
 
-  depends_on macos: ">= 15.1"
+  depends_on macos: :sequoia
 
   app "Skitchish.app"
+
+  caveats "Requires macOS 15.1 or later."
 end
 EOF
